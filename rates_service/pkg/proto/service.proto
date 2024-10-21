@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package rates_service;
+
+// import "google/api/annotations.proto";
+import "rates.proto";
+import "response.proto";
+
+option go_package = "rates_service/pkg/proto/gen/ratesservicepb";
+
+service RatesService {
+  // Получение курсов
+  rpc GetRates(GetRatesRequest) returns (GetRatesResponse);
+  // {
+  // option (google.api.http) = {get: "/v1/rates"};
+  // }
+}
+
+message GetRatesRequest {}
+message GetRatesResponse {
+  response.ResponseMessage response_message = 1;
+  rates.Rates rates = 2;
+}

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package rates;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "rates_service/pkg/proto/gen/ratespb";
+
+message Rates {
+  google.protobuf.Timestamp timestamp = 1;
+  float ask_price = 2;
+  float bid_price = 3;
+}

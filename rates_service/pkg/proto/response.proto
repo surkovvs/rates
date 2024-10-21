@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package response;
+
+option go_package = "rates_service/pkg/proto/gen/responsepb";
+
+message ResponseMessage {
+  STATUS_CODE status = 1;
+  string message = 2;
+}
+
+enum STATUS_CODE {
+  UNSPECIFIED = 0;
+  OK = 1;
+  ACCEPTED = 2;
+  reserved 3 to 9;
+  BAD_REQUEST = 10;
+  reserved 11 to 19;
+  INTERNAL_ERROR = 20;
+}
