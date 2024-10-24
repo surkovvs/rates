@@ -60,7 +60,9 @@ func (g garantex) GetRates(ctx context.Context, market string) (models.RatesDTO,
 	}
 	defer resp.Body.Close()
 	buf := &bytes.Buffer{}
-	buf.ReadFrom(resp.Body)
+	if _, err = buf.ReadFrom(resp.Body); err != nil {
+		return r, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return r, fmt.Errorf("request remote https://garantex.org failed with status: %s, message: %s", resp.Status, buf.String())
 	}

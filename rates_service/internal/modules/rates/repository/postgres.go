@@ -2,24 +2,20 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"rates_service/config"
 	"rates_service/internal/models"
-	"time"
 
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jmoiron/sqlx"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
+	_ "github.com/lib/pq"
 )
 
 type PostgresRepo struct {
-	db  *sqlx.DB
-	psv *prometheus.SummaryVec
+	db *sqlx.DB
 }
 
-func NewPostgresRepo(cfg config.AppCfg) (PostgresRepo, prometheus.Collector, error) {
+func NewPostgresRepo(cfg config.AppCfg) (PostgresRepo, *sql.DB, error) {
 	connStr := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable",
 		cfg.DB.Host, cfg.DB.Port, cfg.DB.User, cfg.DB.Name, cfg.DB.Password)
 	db, err := sqlx.Connect("postgres", connStr)
@@ -29,14 +25,11 @@ func NewPostgresRepo(cfg config.AppCfg) (PostgresRepo, prometheus.Collector, err
 	return PostgresRepo{
 			db: db,
 		},
-		collectors.NewDBStatsCollector(db.DB, "rates_db"),
+		db.DB,
 		nil
 }
 
-func (pr *PostgresRepo) Create(ctx context.Context, rates models.RatesDTO) error {
-	startTime := time.Now()
-	defer pr.psv.WithLabelValues("").Observe(float64(time.Since(startTime).Seconds()))
-
+func (pr PostgresRepo) Create(ctx context.Context, rates models.RatesDTO) error {
 	res, err := pr.db.ExecContext(ctx, `
 		INSERT INTO rates
 		(stamp,ask_price,bid_price)

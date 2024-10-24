@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -9,56 +10,91 @@ import (
 
 type (
 	AppCfg struct {
-		DB
-		GRPC
-		Log
-	}
-	Log struct {
-		Lvl int `mapstructure:"LOG_LVL"`
+		DB            *DB
+		GRPC          *GRPC
+		HTTP          *HTTP
+		LogLvl        int8   `mapstructure:"log_lvl"`
+		Market        string `mapstructure:"market"`
+		GatherMetrics bool   `mapstructure:"metrics"`
 	}
 	DB struct {
-		Name          string `mapstructure:"DB_NAME"`
-		User          string `mapstructure:"DB_USER"`
-		Password      string `mapstructure:"DB_PASSWORD"`
-		Host          string `mapstructure:"DB_HOST"`
-		Port          string `mapstructure:"DB_PORT"`
-		MigrationPath string `mapstructure:"DB_MIGR_PATH"`
+		Name          string `mapstructure:"db_name"`
+		User          string `mapstructure:"db_user"`
+		Password      string `mapstructure:"db_password"`
+		Host          string `mapstructure:"db_host"`
+		Port          string `mapstructure:"db_port"`
+		MigrationPath string `mapstructure:"db_migr_path"`
 	}
 	GRPC struct {
-		Port     string `mapstructure:"GRPC_PORT"`
-		UserHost string `mapstructure:"GRPC_USER_HOST"`
-		GwPort   string `mapstructure:"GRPC_GW_PORT"`
+		Host string `mapstructure:"grpc_host"`
+		Port string `mapstructure:"grpc_port"`
+	}
+	HTTP struct {
+		Host string `mapstructure:"http_host"`
+		Port string `mapstructure:"http_port"`
 	}
 )
 
-func NewAppConfig(env string) (*AppCfg, error) {
-	// Устанавливаем дефолтные значения
-	viper.SetDefault("PORT", 8080)
-	viper.SetDefault("HOST", "localhost")
-	viper.SetDefault("DATABASE", "mydb")
+func pflagAndViperStringReg(vi *viper.Viper, fs *pflag.FlagSet, envName, defValue string) {
+	fs.String(envName, "", "")
+	vi.SetDefault(envName, defValue)
+}
 
-	// Мапим переменные из файла
-	viper.SetConfigFile(env)
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed read dotenv file: %w", err)
+func NewAppConfig() (AppCfg, error) {
+	cfg := AppCfg{}
+	vi := viper.New()
+	fs := pflag.NewFlagSet("custom", pflag.ContinueOnError)
+	// Регистрация переменных
+	vi.SetDefault("log_lvl", 2)
+	fs.Int8("log_lvl", 0, "")
+	vi.SetDefault("metrics", false)
+	fs.Bool("metrics", false, "")
+	pflagAndViperStringReg(vi, fs, "market", "usdtusd")
+	pflagAndViperStringReg(vi, fs, "db_name", "usdt")
+	pflagAndViperStringReg(vi, fs, "db_user", "postgres")
+	pflagAndViperStringReg(vi, fs, "db_password", "postgres")
+	pflagAndViperStringReg(vi, fs, "db_host", "localhost")
+	pflagAndViperStringReg(vi, fs, "db_port", "5432")
+	pflagAndViperStringReg(vi, fs, "db_migr_path", "defaultname")
+	pflagAndViperStringReg(vi, fs, "grpc_host", "localhost")
+	pflagAndViperStringReg(vi, fs, "grpc_port", "9090")
+	pflagAndViperStringReg(vi, fs, "http_host", "localhost")
+	pflagAndViperStringReg(vi, fs, "http_port", "8080")
+	// Мапинг переменных окружения
+	vi.AutomaticEnv()
+	// Мапинг переменных из файла (если путь задан флагом)
+	fs.StringP("dotenvpath", "c", "", "Path to dotenv file if exists")
+	if err := fs.Parse(os.Args); err != nil {
+		return cfg, fmt.Errorf("flag set parse failed: %w", err)
 	}
-
-	// Мапим переменные окружения
-	viper.AutomaticEnv()
-
-	// Устанавливаем флаги
-	pflag.Int("port", 8080, "Port to run the application on")
-	pflag.String("host", "localhost", "Host of the application")
-	pflag.String("database", "mydb", "Database name")
-	pflag.Parse()
-
-	// Мапим флаги
-	viper.BindPFlags(pflag.CommandLine)
-
-	// Записываем в структуру
-	var config = &AppCfg{}
-	if err := viper.Unmarshal(config); err != nil {
-		return nil, fmt.Errorf("failed env map decoding: %w", err)
+	dotenvFlag := fs.Lookup("dotenvpath")
+	if dotenvFlag.Changed {
+		wd, err := os.Getwd()                           // delete
+		fmt.Println(wd, err, dotenvFlag.Value.String()) // delete
+		vi.SetConfigFile(dotenvFlag.Value.String())
+		if err := vi.ReadInConfig(); err != nil {
+			return cfg, fmt.Errorf("read dotenv file failed: %w", err)
+		}
 	}
-	return config, nil
+	// Мапинг флагов
+	if err := vi.BindPFlags(fs); err != nil {
+		return cfg, fmt.Errorf("binding flags in viper failed: %w", err)
+	}
+	// Запись в структуру
+	cfg.DB = &DB{}
+	cfg.GRPC = &GRPC{}
+	cfg.HTTP = &HTTP{}
+	if err := vi.Unmarshal(cfg.DB); err != nil {
+		return cfg, fmt.Errorf("failed env map decoding: %w", err)
+	}
+	if err := vi.Unmarshal(cfg.GRPC); err != nil {
+		return cfg, fmt.Errorf("failed env map decoding: %w", err)
+	}
+	if err := vi.Unmarshal(cfg.HTTP); err != nil {
+		return cfg, fmt.Errorf("failed env map decoding: %w", err)
+	}
+	if err := vi.Unmarshal(&cfg); err != nil {
+		return cfg, fmt.Errorf("failed env map decoding: %w", err)
+	}
+	return cfg, nil
 }

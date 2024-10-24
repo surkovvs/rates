@@ -1,31 +1,32 @@
 package main
 
 import (
-	"fmt"
 	"os"
+	"os/signal"
+	"rates_service/config"
+	"rates_service/infrastructure/logger"
+	"rates_service/internal/app"
+	"syscall"
 
-	"go.uber.org/fx"
-	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
 func main() {
-	var lvl = zap.AtomicLevel{}
-	logger, _ := zap.New(
-		zapcore.NewCore(
-			zapcore.NewConsoleEncoder(),
-			os.Stdout,
-			lvl))
-	fx.New(
-		func(logger *zap.Logger) fxevent.Logger {
-			return &fxevent.ZapLogger{Logger: logger}
-		},
-		fx.Provide(SomeShit()))
-}
-
-func SomeShit() {
-	for {
-		fmt.Println("shit")
+	zapLogger, zapLvl := logger.NewZap(2)
+	cfg, err := config.NewAppConfig()
+	if err != nil {
+		zapLogger.Fatal("config init failed", zap.Error(err))
 	}
+	zapLvl.SetLevel(zapcore.Level(cfg.LogLvl))
+	App, err := app.NewApp(cfg, zapLogger)
+	if err != nil {
+		zapLogger.Error("app init failed", zap.Error(err))
+	}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	if err := App.Run(sig); err != nil {
+		zapLogger.Fatal("rates service running error", zap.Error(err))
+	}
+	zapLogger.Warn("rates service finished", zap.Int("PID", os.Getpid()))
 }
