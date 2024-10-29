@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"rates_service/internal/models"
 	"strconv"
+
+	"github.com/opentracing/opentracing-go"
 )
 
 type (
@@ -50,23 +52,35 @@ func NewGarantexProvider(c *http.Client) garantex {
 
 func (g garantex) GetRates(ctx context.Context, market string) (models.RatesDTO, error) {
 	var r models.RatesDTO
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://garantex.org/api/v2/depth?market=%s", market), nil)
+
+	span, ctxt := opentracing.StartSpanFromContextWithTracer(ctx, opentracing.GlobalTracer(), "get depth from garantex")
+	span.LogKV("result", "success")
+	defer func() {
+		span.Finish()
+	}()
+
+	req, err := http.NewRequestWithContext(ctxt, http.MethodGet, fmt.Sprintf("https://garantex.org/api/v2/depth?market=%s", market), nil)
 	if err != nil {
+		span.LogKV("result", "failed")
 		return r, err
 	}
 	resp, err := g.client.Do(req)
 	if err != nil {
+		span.LogKV("result", "failed")
 		return r, err
 	}
 	defer resp.Body.Close()
 	buf := &bytes.Buffer{}
 	if _, err = buf.ReadFrom(resp.Body); err != nil {
+		span.LogKV("result", "failed")
 		return r, err
 	}
 	if resp.StatusCode != http.StatusOK {
+		span.LogKV("result", "failed")
 		return r, fmt.Errorf("request remote https://garantex.org failed with status: %s, message: %s", resp.Status, buf.String())
 	}
 	if err := parseDepth(buf.Bytes(), &r); err != nil {
+		span.LogKV("result", "failed")
 		return r, fmt.Errorf("responce parse failed: %w", err)
 	}
 	return r, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -20,17 +21,21 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	grpcZap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
+	"github.com/opentracing/opentracing-go"
+	jconfig "github.com/uber/jaeger-client-go/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type App struct {
-	cfg        config.AppCfg
-	log        *zap.Logger
-	db         *sql.DB
-	grpcServer *grpc.Server
-	httpServer *http.Server
-	router     http.Handler
+	cfg         config.AppCfg
+	traceCloser io.Closer
+	log         *zap.Logger
+	db          *sql.DB
+	grpcServer  *grpc.Server
+	httpServer  *http.Server
 }
 
 func NewApp(cfg config.AppCfg, logger *zap.Logger) (*App, error) {
@@ -52,8 +57,30 @@ func NewApp(cfg config.AppCfg, logger *zap.Logger) (*App, error) {
 
 	app.grpcServer = grpc.NewServer(grpc.ChainUnaryInterceptor(grpcZap.UnaryServerInterceptor(logger)))
 	ratesservicepb.RegisterRatesServiceServer(app.grpcServer, ratesService)
+	// healthcheck
+	grpc_health_v1.RegisterHealthServer(app.grpcServer, health.NewServer())
 
-	app.router = router.InitChi()
+	app.httpServer = &http.Server{
+		Addr:    app.cfg.HTTP.Host + ":" + app.cfg.HTTP.Port,
+		Handler: router.InitChi(),
+	}
+
+	jcfg := jconfig.Configuration{
+		ServiceName: "rates_service",
+		Sampler: &jconfig.SamplerConfig{
+			Type:  "const",
+			Param: 1,
+		},
+		Reporter: &jconfig.ReporterConfig{
+			LogSpans: true,
+		},
+	}
+	tracer, traceCloser, err := jcfg.NewTracer()
+	if err != nil {
+		return nil, err
+	}
+	app.traceCloser = traceCloser
+	opentracing.SetGlobalTracer(tracer)
 
 	return app, nil
 }
@@ -83,10 +110,6 @@ func (a *App) Run(sig chan os.Signal) error {
 			a.log.Error("grpc serve failed", zap.Error(err))
 		}
 	}()
-	a.httpServer = &http.Server{
-		Addr:    a.cfg.HTTP.Host + ":" + a.cfg.HTTP.Port,
-		Handler: a.router,
-	}
 	go func() {
 		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			a.log.Error("http serve failed", zap.Error(err))
@@ -102,6 +125,9 @@ func (a *App) stop() {
 		a.log.Error("http shutdown", zap.Error(err))
 	}
 	a.grpcServer.GracefulStop()
+	if err := a.traceCloser.Close(); err != nil {
+		a.log.Error("close tracer", zap.Error(err))
+	}
 	if err := a.db.Close(); err != nil {
 		a.log.Error("http shutdown", zap.Error(err))
 	}

@@ -1,0 +1,15 @@
+global:
+  scrape_interval:      15s # How frequently to scrape targets by default.
+  evaluation_interval:  15s # How frequently to evaluate rules.
+scrape_configs: # A list of scrape configurations.
+  # - job_name: 'prometheus'  # The job name assigned to scraped metrics by default.
+  #   scrape_interval: 5s  # How frequently to scrape targets from this job.
+  #   scrape_timeout:  5s  # Per-scrape timeout when scraping this job.
+  #   static_configs: # List of labeled statically configured targets for this job.
+  #     - targets: ['prometheus:9090']
+  - job_name: 'rates_service'  # The job name assigned to scraped metrics by default.
+    metrics_path: '/metrics'
+    scrape_interval: 5s  # Интервал пула метрик
+    scrape_timeout:  5s  # Интервал, коли не вышло
+    static_configs: # List of labeled statically configured targets for this job.
+      - targets: ['rates:8080']

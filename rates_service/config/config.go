@@ -56,9 +56,9 @@ func NewAppConfig() (AppCfg, error) {
 	pflagAndViperStringReg(vi, fs, "db_host", "localhost")
 	pflagAndViperStringReg(vi, fs, "db_port", "5432")
 	pflagAndViperStringReg(vi, fs, "db_migr_path", "defaultname")
-	pflagAndViperStringReg(vi, fs, "grpc_host", "localhost")
+	pflagAndViperStringReg(vi, fs, "grpc_host", "")
 	pflagAndViperStringReg(vi, fs, "grpc_port", "9090")
-	pflagAndViperStringReg(vi, fs, "http_host", "localhost")
+	pflagAndViperStringReg(vi, fs, "http_host", "")
 	pflagAndViperStringReg(vi, fs, "http_port", "8080")
 	// Мапинг переменных окружения
 	vi.AutomaticEnv()
@@ -69,8 +69,6 @@ func NewAppConfig() (AppCfg, error) {
 	}
 	dotenvFlag := fs.Lookup("dotenvpath")
 	if dotenvFlag.Changed {
-		wd, err := os.Getwd()                           // delete
-		fmt.Println(wd, err, dotenvFlag.Value.String()) // delete
 		vi.SetConfigFile(dotenvFlag.Value.String())
 		if err := vi.ReadInConfig(); err != nil {
 			return cfg, fmt.Errorf("read dotenv file failed: %w", err)

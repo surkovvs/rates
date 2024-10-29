@@ -10,6 +10,8 @@ import (
 	"rates_service/pkg/proto/gen/responsepb"
 	respb "rates_service/pkg/proto/gen/responsepb"
 
+	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/log"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -46,6 +48,13 @@ func (rs *RateService) GetRates(ctx context.Context, req *servpb.GetRatesRequest
 			Status: respb.STATUS_CODE_OK,
 		}}
 
+	span, ctxt := opentracing.StartSpanFromContextWithTracer(ctx, opentracing.GlobalTracer(), "GetRates")
+	defer func() {
+		status := responsepb.STATUS_CODE_name[int32(resp.ResponseMessage.Status)]
+		span.LogFields(log.String("response status", status))
+		span.Finish()
+	}()
+
 	mFuncMethod := prommetrics.ObcerveSummaryVecSplit("endpoints")
 	defer func() {
 		status := responsepb.STATUS_CODE_name[int32(resp.ResponseMessage.Status)]
@@ -53,7 +62,7 @@ func (rs *RateService) GetRates(ctx context.Context, req *servpb.GetRatesRequest
 	}()
 
 	mFuncProvider := prommetrics.ObcerveSummaryVecSplit("provider_API")
-	rates, err := rs.remote.GetRates(ctx, rs.market)
+	rates, err := rs.remote.GetRates(ctxt, rs.market)
 	mFuncProvider("GetRates", func() string {
 		if err != nil {
 			return "success"
@@ -72,7 +81,7 @@ func (rs *RateService) GetRates(ctx context.Context, req *servpb.GetRatesRequest
 	}
 
 	mFuncDB := prommetrics.ObcerveSummaryVecSplit("DB")
-	err = rs.repo.Create(ctx, rates)
+	err = rs.repo.Create(ctxt, rates)
 	mFuncDB("rates", "Create", func() string {
 		if err != nil {
 			return "success"

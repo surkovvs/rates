@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"rates_service/config"
 	"rates_service/internal/models"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -35,7 +36,7 @@ func (pr PostgresRepo) Create(ctx context.Context, rates models.RatesDTO) error 
 		(stamp,ask_price,bid_price)
 		VALUES
 		($1,$2,$3);
-	`, rates.Timestamp, rates.AskPrice, rates.BidPrice)
+	`, time.Unix(rates.Timestamp, 0), rates.AskPrice, rates.BidPrice)
 	if err != nil {
 		return err
 	}
