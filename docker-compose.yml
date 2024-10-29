@@ -68,3 +68,16 @@ services:
           memory: 200M
     networks:
       - mylocal
+  jaeger:
+    container_name: jaeger
+    image: jaegertracing/all-in-one:1.62.0
+    ports:
+    # jaeger gRPC OTLP port - 4317 
+      - "127.0.0.1:16686:16686" # jaeger ui port
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 200M
+    networks:
+      - mylocal

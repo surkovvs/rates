@@ -7,6 +7,7 @@ import (
 	"rates_service/pkg/proto/gen/ratesservicepb"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -32,7 +33,9 @@ func main() {
 
 	for {
 		go func() {
-			ctx, _ := context.WithTimeout(context.Background(), time.Second*2)
+			ctx, span := otel.Tracer("bombardier").Start(context.Background(), "call")
+			defer span.End()
+			ctx, _ = context.WithTimeout(ctx, time.Second*2)
 			resp, err := client.GetRates(ctx, &ratesservicepb.GetRatesRequest{})
 			if err != nil {
 				log.Println(err)

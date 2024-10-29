@@ -31,6 +31,8 @@ gen_proto:
 tidy:
 	cd $(SERVICE_PATH) && GOWORK=off go mod tidy && GOWORK=off go mod vendor
 	
+run_bombardier:
+	go run ./testdata/bombardier.go
 
 # gen_gateway:
 # 	protoc -I=$(PROTO_DIR) \

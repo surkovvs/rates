@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"rates_service/config"
 	"rates_service/infrastructure/prommetrics"
+	"rates_service/infrastructure/tracer"
 	"rates_service/internal/modules/rates/repository"
 	"rates_service/internal/modules/rates/service"
 	"rates_service/internal/modules/rates/service/provider"
@@ -21,8 +21,6 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	grpcZap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
-	"github.com/opentracing/opentracing-go"
-	jconfig "github.com/uber/jaeger-client-go/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -30,12 +28,11 @@ import (
 )
 
 type App struct {
-	cfg         config.AppCfg
-	traceCloser io.Closer
-	log         *zap.Logger
-	db          *sql.DB
-	grpcServer  *grpc.Server
-	httpServer  *http.Server
+	cfg        config.AppCfg
+	log        *zap.Logger
+	db         *sql.DB
+	grpcServer *grpc.Server
+	httpServer *http.Server
 }
 
 func NewApp(cfg config.AppCfg, logger *zap.Logger) (*App, error) {
@@ -55,45 +52,36 @@ func NewApp(cfg config.AppCfg, logger *zap.Logger) (*App, error) {
 
 	ratesService := service.NewRateService(logger, cfg.Market, Provider, Repository)
 
-	app.grpcServer = grpc.NewServer(grpc.ChainUnaryInterceptor(grpcZap.UnaryServerInterceptor(logger)))
-	ratesservicepb.RegisterRatesServiceServer(app.grpcServer, ratesService)
-	// healthcheck
-	grpc_health_v1.RegisterHealthServer(app.grpcServer, health.NewServer())
+	// tracing
+	handler := tracer.InitTracer(cfg)
 
+	// grpc server
+	app.grpcServer = grpc.NewServer(
+		grpc.ChainUnaryInterceptor(grpcZap.UnaryServerInterceptor(logger)),
+		grpc.StatsHandler(handler), // tracing
+	)
+	ratesservicepb.RegisterRatesServiceServer(app.grpcServer, ratesService)
+	grpc_health_v1.RegisterHealthServer(app.grpcServer, health.NewServer()) // healthcheck
+
+	// http server
 	app.httpServer = &http.Server{
 		Addr:    app.cfg.HTTP.Host + ":" + app.cfg.HTTP.Port,
 		Handler: router.InitChi(),
 	}
 
-	jcfg := jconfig.Configuration{
-		ServiceName: "rates_service",
-		Sampler: &jconfig.SamplerConfig{
-			Type:  "const",
-			Param: 1,
-		},
-		Reporter: &jconfig.ReporterConfig{
-			LogSpans: true,
-		},
-	}
-	tracer, traceCloser, err := jcfg.NewTracer()
-	if err != nil {
-		return nil, err
-	}
-	app.traceCloser = traceCloser
-	opentracing.SetGlobalTracer(tracer)
-
 	return app, nil
 }
 
-func (a *App) Run(sig chan os.Signal) error {
-	if a.cfg.DB.MigrationPath != "" {
-		absMigr, err := filepath.Abs(a.cfg.DB.MigrationPath)
+func (app *App) Run(sig chan os.Signal) error {
+	// migration
+	if app.cfg.DB.MigrationPath != "" {
+		absMigr, err := filepath.Abs(app.cfg.DB.MigrationPath)
 		if err != nil {
 			return fmt.Errorf("%s: %w", "migrate instance init failed", err)
 		}
 		migr, err := migrate.New(fmt.Sprintf("file://%s", absMigr),
 			fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
-				a.cfg.DB.User, a.cfg.DB.Password, a.cfg.DB.Host, a.cfg.DB.Port, a.cfg.DB.Name))
+				app.cfg.DB.User, app.cfg.DB.Password, app.cfg.DB.Host, app.cfg.DB.Port, app.cfg.DB.Name))
 		if err != nil {
 			return fmt.Errorf("%s: %w", "migrate instance init failed", err)
 		}
@@ -101,34 +89,43 @@ func (a *App) Run(sig chan os.Signal) error {
 			return fmt.Errorf("%s: %w", "db migration failed", err)
 		}
 	}
-	listener, err := net.Listen("tcp", a.cfg.GRPC.Host+":"+a.cfg.GRPC.Port)
+	// tracing
+	if err := tracer.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed start tracer exporter: %w", err)
+	}
+	// grpc
+	listener, err := net.Listen("tcp", app.cfg.GRPC.Host+":"+app.cfg.GRPC.Port)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 	go func() {
-		if err := a.grpcServer.Serve(listener); err != nil {
-			a.log.Error("grpc serve failed", zap.Error(err))
+		if err := app.grpcServer.Serve(listener); err != nil {
+			app.log.Error("grpc serve failed", zap.Error(err))
 		}
 	}()
+	// http
 	go func() {
-		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			a.log.Error("http serve failed", zap.Error(err))
+		if err := app.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			app.log.Error("http serve failed", zap.Error(err))
 		}
 	}()
 	<-sig
-	a.stop()
+	app.stop()
 	return nil
 }
 
-func (a *App) stop() {
-	if err := a.httpServer.Shutdown(context.Background()); err != nil {
-		a.log.Error("http shutdown", zap.Error(err))
+func (app *App) stop() {
+	if err := app.httpServer.Shutdown(context.Background()); err != nil {
+		app.log.Error("http shutdown", zap.Error(err))
 	}
-	a.grpcServer.GracefulStop()
-	if err := a.traceCloser.Close(); err != nil {
-		a.log.Error("close tracer", zap.Error(err))
+
+	app.grpcServer.GracefulStop()
+
+	if err := tracer.Shutdown(context.Background()); err != nil {
+		app.log.Error("tracer provider shutdown call failed", zap.Error(err))
 	}
-	if err := a.db.Close(); err != nil {
-		a.log.Error("http shutdown", zap.Error(err))
+
+	if err := app.db.Close(); err != nil {
+		app.log.Error("http shutdown", zap.Error(err))
 	}
 }

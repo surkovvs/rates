@@ -2,13 +2,16 @@ module studentgit.kata.academy/VSSurkov/usdt/testdata/bombardier
 
 go 1.22.6
 
-require google.golang.org/grpc v1.67.1
+require (
+	go.opentelemetry.io/otel v1.31.0
+	google.golang.org/grpc v1.67.1
+)
 
 require (
-	github.com/opentracing/opentracing-go v1.2.0 // indirect
-	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
-	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
-	go.uber.org/atomic v1.11.0 // indirect
+	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
+	go.opentelemetry.io/otel/metric v1.31.0 // indirect
+	go.opentelemetry.io/otel/trace v1.31.0 // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/sys v0.24.0 // indirect
 	golang.org/x/text v0.17.0 // indirect

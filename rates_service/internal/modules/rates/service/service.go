@@ -7,11 +7,10 @@ import (
 	"rates_service/internal/models"
 	"rates_service/pkg/proto/gen/ratespb"
 	servpb "rates_service/pkg/proto/gen/ratesservicepb"
-	"rates_service/pkg/proto/gen/responsepb"
 	respb "rates_service/pkg/proto/gen/responsepb"
 
-	"github.com/opentracing/opentracing-go"
-	"github.com/opentracing/opentracing-go/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -43,26 +42,22 @@ func NewRateService(log *zap.Logger, market string, p provider, r repository) *R
 }
 
 func (rs *RateService) GetRates(ctx context.Context, req *servpb.GetRatesRequest) (*servpb.GetRatesResponse, error) {
+	spanCtx, span := otel.GetTracerProvider().Tracer("rates_service").Start(ctx, "GetRates")
+	defer span.End(trace.WithStackTrace(true))
+
 	resp := &servpb.GetRatesResponse{
 		ResponseMessage: &respb.ResponseMessage{
 			Status: respb.STATUS_CODE_OK,
 		}}
 
-	span, ctxt := opentracing.StartSpanFromContextWithTracer(ctx, opentracing.GlobalTracer(), "GetRates")
-	defer func() {
-		status := responsepb.STATUS_CODE_name[int32(resp.ResponseMessage.Status)]
-		span.LogFields(log.String("response status", status))
-		span.Finish()
-	}()
-
 	mFuncMethod := prommetrics.ObcerveSummaryVecSplit("endpoints")
 	defer func() {
-		status := responsepb.STATUS_CODE_name[int32(resp.ResponseMessage.Status)]
+		status := respb.STATUS_CODE_name[int32(resp.ResponseMessage.Status)]
 		mFuncMethod("GetRates", status)
 	}()
 
 	mFuncProvider := prommetrics.ObcerveSummaryVecSplit("provider_API")
-	rates, err := rs.remote.GetRates(ctxt, rs.market)
+	rates, err := rs.remote.GetRates(spanCtx, rs.market)
 	mFuncProvider("GetRates", func() string {
 		if err != nil {
 			return "success"
@@ -81,7 +76,7 @@ func (rs *RateService) GetRates(ctx context.Context, req *servpb.GetRatesRequest
 	}
 
 	mFuncDB := prommetrics.ObcerveSummaryVecSplit("DB")
-	err = rs.repo.Create(ctxt, rates)
+	err = rs.repo.Create(spanCtx, rates)
 	mFuncDB("rates", "Create", func() string {
 		if err != nil {
 			return "success"
